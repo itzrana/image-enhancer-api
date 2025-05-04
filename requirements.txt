@@ -1,0 +1,6 @@
+flask
+torch
+numpy
+pillow
+realesrgan
+git+https://github.com/xinntao/Real-ESRGAN.git
