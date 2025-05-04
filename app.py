@@ -1,3 +1,10 @@
+import os
+if not os.path.exists('weights/RealESRGAN_x4plus.pth'):
+    import requests
+    url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/RealESRGAN_x4plus.pth"
+    r = requests.get(url)
+    with open("weights/RealESRGAN_x4plus.pth", "wb") as f:
+        f.write(r.content)
 from flask import Flask, request, send_file
 from PIL import Image
 import io
