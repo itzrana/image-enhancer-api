@@ -1,55 +1,54 @@
 import os
-if not os.path.exists('weights/RealESRGAN_x4plus.pth'):
-    import requests
-    url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/RealESRGAN_x4plus.pth"
-    r = requests.get(url)
-    with open("weights/RealESRGAN_x4plus.pth", "wb") as f:
-        f.write(r.content)
-from flask import Flask, request, send_file
-from PIL import Image
 import io
+import requests
+from flask import Flask, request, send_file, jsonify
+from PIL import Image
 import torch
-from basicsr.archs.rrdbnet_arch import RRDBNet
-from realesrgan import RealESRGANer
+from realesrgan import RealESRGAN
 
 app = Flask(__name__)
 
-# Load model (weights should be in the 'weights' folder)
-model_path = 'weights/RealESRGAN_x4plus.pth'
-model = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=4)
-upsampler = RealESRGANer(
-    scale=4,
-    model_path=model_path,
-    model=model,
-    tile=0,
-    tile_pad=10,
-    pre_pad=0,
-    half=False
-)
+# Download model if not exists
+model_dir = 'weights'
+model_path = os.path.join(model_dir, 'RealESRGAN_x4plus.pth')
+model_url = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/RealESRGAN_x4plus.pth'
 
-@app.route('/enhance', methods=['POST'])
-def enhance_image():
-    if 'image' not in request.files:
-        return {'error': 'No image uploaded'}, 400
+if not os.path.exists(model_path):
+    print("🔽 Downloading RealESRGAN model weights...")
+    os.makedirs(model_dir, exist_ok=True)
+    r = requests.get(model_url, stream=True)
+    with open(model_path, 'wb') as f:
+        for chunk in r.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+    print("✅ Model downloaded successfully!")
 
-    image_file = request.files['image']
-    input_image = Image.open(image_file).convert("RGB")
-
-    # Convert to numpy array
-    import numpy as np
-    img_np = np.array(input_image)
-
-    # Run Real-ESRGAN enhancement
-    output, _ = upsampler.enhance(img_np, outscale=4)
-
-    # Convert back to image
-    output_image = Image.fromarray(output)
-
-    img_io = io.BytesIO()
-    output_image.save(img_io, 'JPEG')
-    img_io.seek(0)
-    return send_file(img_io, mimetype='image/jpeg')
+# Load model (only once at startup)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = RealESRGAN(device, scale=4)
+model.load_weights(model_path)
 
 @app.route('/')
-def index():
-    return 'Remini-style Image Enhancer API is running!'
+def home():
+    return '🟢 RealESRGAN Image Enhancer API is Running!'
+
+@app.route('/enhance', methods=['POST'])
+def enhance():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image uploaded'}), 400
+
+    image_file = request.files['image']
+    try:
+        input_image = Image.open(image_file).convert('RGB')
+        enhanced_image = model.predict(input_image)
+
+        buf = io.BytesIO()
+        enhanced_image.save(buf, format='PNG')
+        buf.seek(0)
+        return send_file(buf, mimetype='image/png')
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 10000)))
